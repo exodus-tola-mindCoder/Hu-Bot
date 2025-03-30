@@ -1,39 +1,81 @@
 // In-memory storage for admins
 const admins = new Map();
 
-// Initialize admin
-const ADMIN_TELEGRAM_ID = process.env.ADMIN_TELEGRAM_ID;
-if (ADMIN_TELEGRAM_ID) {
-  admins.set(ADMIN_TELEGRAM_ID, {
-    telegramId: ADMIN_TELEGRAM_ID,
-    role: 'super_admin',
-    isActive: true
+// Initialize admin with ADMIN_TELEGRAM_ID from environment variables
+if (process.env.ADMIN_TELEGRAM_ID) {
+  admins.set(process.env.ADMIN_TELEGRAM_ID, {
+    role: 'admin'
   });
 }
 
 export const handleAdminAccess = async (bot, msg) => {
   const chatId = msg.chat.id;
 
-  try {
-    const admin = admins.get(chatId.toString());
+  if (!admins.has(chatId.toString())) {
+    await bot.sendMessage(chatId, '⛔ Sorry, you do not have admin access.');
+    return;
+  }
 
-    if (!admin) {
-      bot.sendMessage(chatId, 'Unauthorized access.');
-      return;
-    }
+  const adminMenu = `
+🔰 Admin Dashboard
 
-    const adminMessage = `
-🔑 Admin Dashboard
+Available Commands:
+/stats - View registration and payment statistics
+/list - List all registered students
+/verify [chatId] - Verify a student's payment
 
-Available commands:
-1. /stats - View registration and payment statistics
-2. /list - View all registered students
+Need help? Contact system administrator.
 `;
 
-    bot.sendMessage(chatId, adminMessage);
+  await bot.sendMessage(chatId, adminMenu);
+};
+
+export const handleVerify = async (bot, msg, userSessions, students, payments) => {
+  const chatId = msg.chat.id;
+
+  if (!admins.has(chatId.toString())) {
+    await bot.sendMessage(chatId, '⛔ Sorry, you do not have admin access.');
+    return;
+  }
+
+  const args = msg.text.split(' ');
+  if (args.length !== 2) {
+    await bot.sendMessage(chatId, '❌ Please provide the student\'s chat ID. Usage: /verify [chatId]');
+    return;
+  }
+
+  const studentChatId = args[1];
+  const student = students.get(studentChatId);
+  const payment = payments.get(studentChatId);
+
+  if (!student || !payment) {
+    await bot.sendMessage(chatId, '❌ Student not found or no payment record exists.');
+    return;
+  }
+
+  // Update payment status
+  payment.status = 'verified';
+  payments.set(studentChatId, payment);
+
+  // Notify the student
+  const verificationMessage = `
+✅ Payment Verified Successfully!
+
+Your payment of ${payment.amount} ETB has been verified.
+You can now access the Placement System at:
+🔗 https://fresh-placement.vercel.app/
+
+Please complete your department selection process.
+
+Need help? Use /start to contact support.
+`;
+
+  try {
+    await bot.sendMessage(studentChatId, verificationMessage);
+    await bot.sendMessage(chatId, `✅ Payment verified and student notified successfully.`);
   } catch (error) {
-    console.error('Admin access error:', error);
-    bot.sendMessage(chatId, 'An error occurred. Please try again later.');
+    console.error('Error sending verification message:', error);
+    await bot.sendMessage(chatId, '❌ Error notifying student. Please try again.');
   }
 };
 
